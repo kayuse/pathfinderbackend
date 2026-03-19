@@ -1,0 +1,50 @@
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  Unique,
+} from 'typeorm';
+import { Commitment } from './commitment.entity.js';
+import { User } from './user.entity.js';
+
+export enum LogStatus {
+  COMPLETED = 'COMPLETED',
+  SKIPPED = 'SKIPPED',
+  PENDING = 'PENDING',
+}
+
+@Entity('commitment_logs')
+@Unique(['userId', 'commitmentId', 'date'])
+export class CommitmentLog {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'date' })
+  date: Date;
+
+  @Column({ type: 'enum', enum: LogStatus })
+  status: LogStatus;
+
+  @Column({ type: 'float', nullable: true })
+  loggedValue: number;
+
+  @Column()
+  commitmentId: string;
+
+  @Column()
+  userId: string;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @ManyToOne(() => Commitment, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'commitmentId' })
+  commitment: Commitment;
+
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'userId' })
+  user: User;
+}
