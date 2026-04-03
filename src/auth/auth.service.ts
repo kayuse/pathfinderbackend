@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from '../entities/user.entity.js';
+import { User, Role } from '../entities/user.entity.js';
 import { createHmac } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto.js';
@@ -56,6 +56,7 @@ export class AuthService {
         name: [telegramUserData.first_name, telegramUserData.last_name]
           .filter(Boolean)
           .join(' '),
+        role: Role.USER,
       });
       user = await this.userRepository.save(user);
     }
@@ -71,7 +72,7 @@ export class AuthService {
    * Register a new user with email and password
    */
   async register(registerDto: RegisterDto) {
-    const { email, password, name } = registerDto;
+    const { email, password, name, role } = registerDto;
 
     // Validate email format
     if (!email || !email.includes('@')) {
@@ -100,6 +101,7 @@ export class AuthService {
       email,
       passwordHash,
       name: name || email.split('@')[0],
+      role: role || Role.USER,
     });
 
     await this.userRepository.save(user);

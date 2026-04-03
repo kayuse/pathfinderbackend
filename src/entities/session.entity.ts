@@ -26,6 +26,9 @@ export class Session {
   @Column({ default: true })
   openForApplication: boolean;
 
+  @Column({ default: false })
+  isClosed: boolean;
+
   @Column()
   startDate: Date;
 

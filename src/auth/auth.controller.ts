@@ -28,7 +28,7 @@ export class AuthController {
           id: 'b41e9a59-f1ed-42cf-afc9-00d68a5d7df4',
           email: 'user@example.com',
           name: 'John Doe',
-          role: 'USER',
+          role: 'ADMIN',
         },
       },
     },

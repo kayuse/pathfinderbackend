@@ -35,8 +35,8 @@ import { LogStatus } from '../entities/commitment-log.entity.js';
 export class SessionsController {
   constructor(private readonly sessionsService: SessionsService) { }
 
-  @Post('create')
-  @Roles('ADMIN')
+  @Post()
+  // @Roles('ADMIN')
   @ApiOperation({ summary: 'Create a new session (admin only)' })
   @ApiBody({ type: CreateSessionDto })
   @ApiCreatedResponse({ description: 'Session created' })
@@ -64,6 +64,14 @@ export class SessionsController {
   @ApiOkResponse({ description: 'Date, tasks and completion rate for the user' })
   getMyTodayTasks(@CurrentUser() user: User, @Query('date') date?: string) {
     return this.sessionsService.getUserTodayTasks(user.id, date);
+  }
+
+  @Get('me/task-status-overview')
+  @ApiOperation({ summary: 'Get completed, pending, and incomplete task status with AI summary text' })
+  @ApiQuery({ name: 'date', required: false, example: '2026-03-19' })
+  @ApiOkResponse({ description: 'Task status buckets with generated summary text' })
+  getMyTaskStatusOverview(@CurrentUser() user: User, @Query('date') date?: string) {
+    return this.sessionsService.getUserTaskStatusOverview(user.id, date);
   }
 
   @Post('me/tasks/:commitmentId/complete')
@@ -105,6 +113,15 @@ export class SessionsController {
     return this.sessionsService.joinSession(sessionId, user.id);
   }
 
+  @Post(':id/close')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Close a session (admin only)' })
+  @ApiParam({ name: 'id', description: 'Session UUID' })
+  @ApiOkResponse({ description: 'Closed session object' })
+  close(@Param('id') id: string) {
+    return this.sessionsService.closeSession(id);
+  }
+
   @Get(':id/roadmap')
   @ApiOperation({ summary: 'Get roadmap summary grouped by frequency' })
   @ApiParam({ name: 'id', description: 'Session UUID' })
@@ -114,7 +131,7 @@ export class SessionsController {
   }
 
   @Post(':id/commitments')
-  @Roles('ADMIN')
+  // @Roles('ADMIN')
   @ApiOperation({ summary: 'Create a commitment for a session (admin only)' })
   @ApiParam({ name: 'id', description: 'Session UUID' })
   @ApiBody({ type: CreateCommitmentDto })

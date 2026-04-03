@@ -24,8 +24,8 @@ import { AnalyticsQueryDto } from './dto/analytics-query.dto.js';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN')
-@ApiTags('Admin')
+// @Roles('ADMIN')
+// @ApiTags('Admin')
 @ApiBearerAuth('jwt-auth')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}

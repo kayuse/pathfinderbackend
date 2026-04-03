@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../entities/user.entity.js';
 import { TelegramService } from '../telegram/telegram.service.js';
+import { SessionsService } from '../sessions/sessions.service.js';
 
 @Injectable()
 export class RemindersService {
@@ -13,7 +14,30 @@ export class RemindersService {
 		@InjectRepository(User)
 		private userRepository: Repository<User>,
 		private telegramService: TelegramService,
+		private sessionsService: SessionsService,
 	) { }
+
+	@Cron('0 */6 * * *')
+	async sendPendingTaskRemindersEverySixHours() {
+		const users = await this.getLinkedTelegramUsers();
+
+		let remindedUsers = 0;
+		for (const user of users) {
+			if (!user.telegramId) {
+				continue;
+			}
+
+			const pendingTasks = await this.sessionsService.getUserPendingTasksForReminder(user.id);
+			if (!pendingTasks.length) {
+				continue;
+			}
+
+			await this.telegramService.sendPendingTasksReminder(user.telegramId, pendingTasks);
+			remindedUsers += 1;
+		}
+
+		this.logger.log(`6-hour pending task reminders sent to ${remindedUsers} user(s).`);
+	}
 
 	@Cron(CronExpression.EVERY_DAY_AT_6AM)
 	async sendMorningDailyTasks() {

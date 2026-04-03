@@ -25,6 +25,12 @@ export class CommitmentLog {
   @Column({ type: 'date' })
   date: Date;
 
+  @Column({ type: 'date', nullable: true })
+  startDate: Date;
+
+  @Column({ type: 'date', nullable: true })
+  endDate: Date;
+
   @Column({ type: 'enum', enum: LogStatus })
   status: LogStatus;
 
