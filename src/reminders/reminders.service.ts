@@ -18,6 +18,7 @@ export class RemindersService {
 	) { }
 
 	@Cron('0 */6 * * *')
+  // @Cron('* * * * *')
 	async sendPendingTaskRemindersEverySixHours() {
 		const users = await this.getLinkedTelegramUsers();
 
@@ -28,6 +29,7 @@ export class RemindersService {
 			}
 
 			const pendingTasks = await this.sessionsService.getUserPendingTasksForReminder(user.id);
+
 			if (!pendingTasks.length) {
 				continue;
 			}

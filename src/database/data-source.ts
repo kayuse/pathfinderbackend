@@ -1,10 +1,10 @@
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
-import { CommitmentLog } from '../entities/commitment-log.entity.js';
-import { Commitment } from '../entities/commitment.entity.js';
-import { SessionParticipant } from '../entities/session-participant.entity.js';
-import { Session } from '../entities/session.entity.js';
-import { User } from '../entities/user.entity.js';
+import { CommitmentLog } from '../entities/commitment-log.entity';
+import { Commitment } from '../entities/commitment.entity';
+import { SessionParticipant } from '../entities/session-participant.entity';
+import { Session } from '../entities/session.entity';
+import { User } from '../entities/user.entity';
 
 const isProduction = process.env.NODE_ENV === 'production';
 

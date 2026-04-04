@@ -6,8 +6,8 @@ import {
   UpdateDateColumn,
   OneToMany,
 } from 'typeorm';
-import { SessionParticipant } from './session-participant.entity.js';
-import { CommitmentLog } from './commitment-log.entity.js';
+import { SessionParticipant } from './session-participant.entity';
+import { CommitmentLog } from './commitment-log.entity';
 
 export enum Role {
   USER = 'USER',

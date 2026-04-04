@@ -85,6 +85,34 @@ export class SessionsController {
     return this.sessionsService.upsertTaskLog(user.id, commitmentId, LogStatus.COMPLETED);
   }
 
+  @Get(':id/tasks')
+  @ApiOperation({ summary: 'Get all tasks (commitments) for a session' })
+  @ApiParam({ name: 'id', description: 'Session UUID' })
+  @ApiOkResponse({ description: 'List of commitments belonging to the session' })
+  getSessionTasks(@Param('id') id: string) {
+    return this.sessionsService.getSessionTasks(id);
+  }
+
+  @Get(':id/members')
+  @ApiOperation({ summary: 'Get all subscribed members for a session' })
+  @ApiParam({ name: 'id', description: 'Session UUID' })
+  @ApiOkResponse({ description: 'List of participants with basic user info' })
+  getSessionMembers(@Param('id') id: string) {
+    return this.sessionsService.getSessionMembers(id);
+  }
+
+  @Get(':id/analytics')
+  @ApiOperation({ summary: 'Get analytics for a session' })
+  @ApiParam({ name: 'id', description: 'Session UUID' })
+  @ApiOkResponse({
+    description:
+      'Session analytics: completion rate, active participants, average streak, ' +
+      'retention rate, completion by user, daily engagement trend',
+  })
+  getSessionAnalytics(@Param('id') id: string) {
+    return this.sessionsService.getSessionAnalytics(id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get one session by ID' })
   @ApiParam({ name: 'id', description: 'Session UUID' })

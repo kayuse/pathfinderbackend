@@ -6,8 +6,8 @@ import {
   UpdateDateColumn,
   OneToMany,
 } from 'typeorm';
-import { Commitment } from './commitment.entity.js';
-import { SessionParticipant } from './session-participant.entity.js';
+import { Commitment } from './commitment.entity';
+import { SessionParticipant } from './session-participant.entity';
 
 @Entity('sessions')
 export class Session {

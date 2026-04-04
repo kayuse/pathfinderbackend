@@ -178,15 +178,9 @@ export class TelegramService {
         return;
       }
 
-      // ── log_commitment_<COMPLETED|SKIPPED>_<commitmentId> ────────────────
-      if (data.startsWith('log_commitment_')) {
-        // format: log_commitment_COMPLETED_<uuid>
-        //         log_commitment_SKIPPED_<uuid>
-        const withoutPrefix = data.slice('log_commitment_'.length);
-        const separatorIndex = withoutPrefix.indexOf('_');
-        const status = withoutPrefix.slice(0, separatorIndex) as LogStatus;
-        const commitmentId = withoutPrefix.slice(separatorIndex + 1);
-
+      // ── log_commitment_<COMPLETED|SKIPPED>_<commitmentId>  (legacy / sendDailyReminder) ─
+      // ── log_<COMPLETED|SKIPPED>_<logId>                     (current) ──────────────────
+      if (data.startsWith('log_commitment_') || data.startsWith('log_COMPLETED_') || data.startsWith('log_SKIPPED_')) {
         const user = await this.userRepository.findOne({
           where: { telegramId: chatId.toString() },
         });
@@ -199,13 +193,27 @@ export class TelegramService {
           return;
         }
 
+        let status: LogStatus;
         try {
-          await this.sessionsService.upsertTaskLog(user.id, commitmentId, status);
+          if (data.startsWith('log_commitment_')) {
+            // legacy format: log_commitment_COMPLETED_<commitmentId>
+            const withoutPrefix = data.slice('log_commitment_'.length);
+            const separatorIndex = withoutPrefix.indexOf('_');
+            status = withoutPrefix.slice(0, separatorIndex) as LogStatus;
+            const commitmentId = withoutPrefix.slice(separatorIndex + 1);
+            await this.sessionsService.upsertTaskLog(user.id, commitmentId, status);
+          } else {
+            // current format: log_COMPLETED_<logId> or log_SKIPPED_<logId>
+            const withoutLog = data.slice('log_'.length); // e.g. 'COMPLETED_<logId>'
+            const separatorIndex = withoutLog.indexOf('_');
+            status = withoutLog.slice(0, separatorIndex) as LogStatus;
+            const logId = withoutLog.slice(separatorIndex + 1);
+            await this.sessionsService.updateLogById(logId, status);
+          }
 
-          const ack = status === LogStatus.COMPLETED ? '🙌 Marked complete!' : "⏭️ Skipped for now.";
+          const ack = status === LogStatus.COMPLETED ? '🙌 Marked complete!' : '⏭️ Skipped for now.';
           await this.bot.answerCallbackQuery(query.id, { text: ack });
 
-          // collapse the buttons on the original message so it can't be tapped twice
           if (query.message) {
             await this.bot.editMessageReplyMarkup(
               { inline_keyboard: [[{ text: status === LogStatus.COMPLETED ? '✅ Done' : '⏭️ Skipped', callback_data: 'noop' }]] },
@@ -531,7 +539,7 @@ export class TelegramService {
     }
 
     const allTasks = await this.sessionsService.getUserAllTasks(user.id);
-    const pendingTasks = [...allTasks.daily, ...allTasks.weekly, ...allTasks.monthly]
+    const pendingTasks = [...allTasks.daily, ...allTasks.weekly, ...allTasks.monthly, ...(allTasks.custom ?? [])]
       .filter((task) => task.status === LogStatus.PENDING);
 
     if (!pendingTasks.length) {
@@ -555,8 +563,8 @@ export class TelegramService {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [[
-            { text: '✅ Done', callback_data: `log_commitment_COMPLETED_${task.id}` },
-            { text: '⏭️ Skip', callback_data: `log_commitment_SKIPPED_${task.id}` },
+            { text: '✅ Done', callback_data: `log_COMPLETED_${task.logId}` },
+            { text: '⏭️ Skip', callback_data: `log_SKIPPED_${task.logId}` },
           ]],
         },
       });
@@ -582,6 +590,7 @@ export class TelegramService {
       ...allTasks.daily,
       ...allTasks.weekly,
       ...allTasks.monthly,
+      ...(allTasks.custom ?? []),
     ].filter((t: any) => t.status === LogStatus.PENDING);
 
     if (!pending.length) {
@@ -591,7 +600,7 @@ export class TelegramService {
 
     await Promise.all(
       pending.map((t: any) =>
-        this.sessionsService.upsertTaskLog(user.id, t.id, LogStatus.COMPLETED),
+        this.sessionsService.updateLogById(t.logId, LogStatus.COMPLETED),
       ),
     );
 
@@ -647,10 +656,10 @@ export class TelegramService {
     }
 
     const allTasks = await this.sessionsService.getUserAllTasks(user.id);
-    const { daily, weekly, monthly } = allTasks;
+    const { daily, weekly, monthly, custom = [] } = allTasks;
     const statusOverview = await this.sessionsService.getUserTaskStatusOverview(user.id);
 
-    if (!daily.length && !weekly.length && !monthly.length) {
+    if (!daily.length && !weekly.length && !monthly.length && !custom.length) {
       await this.sendMessage(
         chatId,
         '📭 You have no tasks assigned yet. Use /sessions to join a session.',
@@ -697,6 +706,7 @@ export class TelegramService {
       { label: '📅 *Daily Tasks*', tasks: daily },
       { label: '📆 *Weekly Tasks*', tasks: weekly },
       { label: '🗓 *Monthly Tasks*', tasks: monthly },
+      { label: '🎯 *One-Time Tasks*', tasks: custom },
     ];
 
     for (const { label, tasks } of sections) {
@@ -722,8 +732,8 @@ export class TelegramService {
           + (task.sessionName ? `\n📌 ${task.sessionName}` : '');
 
         const buttons = [[
-          { text: '✅ Done', callback_data: `log_commitment_COMPLETED_${task.id}` },
-          { text: '⏭️ Skip', callback_data: `log_commitment_SKIPPED_${task.id}` },
+          { text: '✅ Done', callback_data: `log_COMPLETED_${task.logId}` },
+          { text: '⏭️ Skip', callback_data: `log_SKIPPED_${task.logId}` },
         ]];
 
         await this.sendMessage(chatId, taskText, {
@@ -801,6 +811,8 @@ export class TelegramService {
       description?: string;
       sessionName?: string;
       date: string;
+      startDate: string;
+      endDate: string;
     }>,
   ) {
     if (!pendingTasks.length) {
@@ -809,7 +821,7 @@ export class TelegramService {
 
     const preview = pendingTasks
       .slice(0, 5)
-      .map((task) => `• ${task.title}${task.sessionName ? ` (${task.sessionName})` : ''} - due ${task.date}`)
+      .map((task) => `• ${task.title}${task.sessionName ? ` (${task.sessionName})` : ''} - due ${task.endDate}`)
       .join('\n');
 
     const moreCount = pendingTasks.length > 5 ? `\n...and ${pendingTasks.length - 5} more.` : '';

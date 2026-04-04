@@ -374,12 +374,15 @@ export class SessionsService {
       };
     }
 
+    const todayFormatted = this.formatDateOnly(today);
     const logs = await this.logRepository
       .createQueryBuilder('log')
       .where('log.userId = :userId', { userId })
       .andWhere('log.commitmentId IN (:...commitmentIds)', { commitmentIds })
-      .andWhere('log.date >= :startOfDay', { startOfDay: today.toISOString() })
-      .andWhere('log.date < :endOfDay', { endOfDay: tomorrow.toISOString() })
+      .andWhere(
+        '(log.date >= :startOfDay AND log.date < :endOfDay) OR (log.startDate <= :todayF AND log.endDate >= :todayF)',
+        { startOfDay: today.toISOString(), endOfDay: tomorrow.toISOString(), todayF: todayFormatted },
+      )
       .getMany();
 
     const commitmentById = new Map(
@@ -403,6 +406,7 @@ export class SessionsService {
 
         return {
           id: context.commitment.id,
+          logId: log.id,
           sessionId: context.session.id,
           sessionName: context.session.name,
           title: context.commitment.title,
@@ -478,7 +482,7 @@ export class SessionsService {
       .filter((session) => this.getSessionStatus(session) === 'RUNNING');
 
     if (!activeSessions.length) {
-      return { daily: [], weekly: [], monthly: [] };
+      return { daily: [], weekly: [], monthly: [], custom: [] };
     }
 
     const allCommitments = activeSessions.flatMap((s) =>
@@ -486,19 +490,22 @@ export class SessionsService {
     );
 
     const allIds = allCommitments.map((c) => c.id);
-    if (!allIds.length) return { daily: [], weekly: [], monthly: [] };
+    if (!allIds.length) return { daily: [], weekly: [], monthly: [], custom: [] };
 
-    // fetch logs for all three windows in one query
+    const todayFormatted = this.formatDateOnly(todayStart);
+
+    // Fetch logs for daily/weekly/monthly windows plus any CUSTOM task active today
     const logs = await this.logRepository
       .createQueryBuilder('log')
       .where('log.userId = :userId', { userId })
       .andWhere('log.commitmentId IN (:...allIds)', { allIds })
-      .andWhere('log.date >= :monthStart', { monthStart: monthStart.toISOString() })
-      .andWhere('log.date < :monthEnd', { monthEnd: monthEnd.toISOString() })
+      .andWhere(
+        '(log.date >= :monthStart AND log.date < :monthEnd) OR (log.startDate <= :todayF AND log.endDate >= :todayF)',
+        { monthStart: monthStart.toISOString(), monthEnd: monthEnd.toISOString(), todayF: todayFormatted },
+      )
       .getMany();
 
     const commitmentById = new Map(allCommitments.map((c: any) => [c.id, c]));
-
     const toTask = (log: CommitmentLog) => {
       const commitment: any = commitmentById.get(log.commitmentId);
       if (!commitment) {
@@ -507,6 +514,7 @@ export class SessionsService {
 
       return {
         id: commitment.id,
+        logId: log.id,
         sessionName: commitment.sessionName,
         title: commitment.title,
         description: commitment.description,
@@ -550,7 +558,18 @@ export class SessionsService {
       .map(toTask)
       .filter((task) => !!task);
 
-    return { daily, weekly, monthly };
+    const custom = logs
+      .filter((log) => {
+        const commitment: any = commitmentById.get(log.commitmentId);
+        return !!commitment
+          && commitment.frequency === Frequency.CUSTOM
+          && log.startDate && log.endDate
+          && new Date(log.startDate) <= todayStart
+          && new Date(log.endDate) >= todayStart;
+      })
+      .map(toTask)
+      .filter((task) => !!task);
+    return { daily, weekly, monthly, custom };
   }
 
   async getUserPendingTasksForReminder(userId: string) {
@@ -574,7 +593,10 @@ export class SessionsService {
       .where('log.userId = :userId', { userId })
       .andWhere('log.commitmentId IN (:...commitmentIds)', { commitmentIds })
       .andWhere('log.status = :status', { status: LogStatus.PENDING })
-      .andWhere('log.date = :today', { today: this.formatDateOnly(today) })
+      .andWhere(
+        '(log.date = :today OR (log.startDate <= :today AND log.endDate >= :today))',
+        { today: this.formatDateOnly(today) },
+      )
       .orderBy('log.date', 'ASC')
       .getMany();
 
@@ -593,6 +615,7 @@ export class SessionsService {
 
         return {
           id: context.commitment.id,
+          logId: log.id,
           title: context.commitment.title,
           description: context.commitment.description,
           frequency: context.commitment.frequency,
@@ -610,13 +633,17 @@ export class SessionsService {
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+    const todayFormatted = this.formatDateOnly(today);
 
+    // Find an existing log either dated today OR whose window covers today (weekly/monthly/custom tasks)
     const existing = await this.logRepository
       .createQueryBuilder('log')
       .where('log.userId = :userId', { userId })
       .andWhere('log.commitmentId = :commitmentId', { commitmentId })
-      .andWhere('log.date >= :startOfDay', { startOfDay: today.toISOString() })
-      .andWhere('log.date < :endOfDay', { endOfDay: tomorrow.toISOString() })
+      .andWhere(
+        '(log.date >= :startOfDay AND log.date < :endOfDay) OR (log.startDate <= :todayF AND log.endDate >= :todayF)',
+        { startOfDay: today.toISOString(), endOfDay: tomorrow.toISOString(), todayF: todayFormatted },
+      )
       .getOne();
 
     if (existing) {
@@ -632,6 +659,190 @@ export class SessionsService {
     });
 
     return this.logRepository.save(log);
+  }
+
+  async updateLogById(logId: string, status: LogStatus) {
+    const log = await this.logRepository.findOne({ where: { id: logId } });
+    if (!log) {
+      throw new NotFoundException(`Commitment log with ID ${logId} not found`);
+    }
+    log.status = status;
+    return this.logRepository.save(log);
+  }
+
+  async getSessionTasks(sessionId: string) {
+    const session = await this.sessionRepository.findOne({ where: { id: sessionId } });
+    if (!session) {
+      throw new NotFoundException(`Session with ID ${sessionId} not found`);
+    }
+    return this.commitmentRepository.find({
+      where: { sessionId },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  async getSessionMembers(sessionId: string) {
+    const session = await this.sessionRepository.findOne({ where: { id: sessionId } });
+    if (!session) {
+      throw new NotFoundException(`Session with ID ${sessionId} not found`);
+    }
+    return this.participantRepository
+      .createQueryBuilder('sp')
+      .leftJoin('sp.user', 'user')
+      .addSelect(['user.id', 'user.name', 'user.email', 'user.telegramUsername', 'user.telegramId'])
+      .where('sp.sessionId = :sessionId', { sessionId })
+      .orderBy('sp.joinedAt', 'ASC')
+      .getMany();
+  }
+
+  async getSessionAnalytics(sessionId: string) {
+    const session = await this.sessionRepository.findOne({
+      where: { id: sessionId },
+      relations: ['commitments'],
+    });
+    if (!session) {
+      throw new NotFoundException(`Session with ID ${sessionId} not found`);
+    }
+
+    const participants = await this.participantRepository.find({
+      where: { sessionId },
+      relations: ['user'],
+    });
+
+    if (!participants.length || !session.commitments.length) {
+      return {
+        totalParticipants: participants.length,
+        totalActiveParticipants: 0,
+        retentionRate: 0,
+        completionRate: 0,
+        averageStreak: 0,
+        completionByUser: [],
+        engagementTrend: [],
+      };
+    }
+
+    const userIds = participants.map((p) => p.userId);
+    const commitmentIds = session.commitments.map((c) => c.id);
+    const today = this.normalizeToDateOnly(new Date());
+    const todayFormatted = this.formatDateOnly(today);
+
+    // All logs for session commitments x session participants up to today
+    const allLogs = await this.logRepository
+      .createQueryBuilder('log')
+      .where('log.commitmentId IN (:...commitmentIds)', { commitmentIds })
+      .andWhere('log.userId IN (:...userIds)', { userIds })
+      .andWhere('log.date <= :today', { today: todayFormatted })
+      .getMany();
+
+    // ------- INACTIVITY -------
+    // Inactive = enrolled 3+ days AND no COMPLETED log in the last 3 calendar days
+    const threeDaysAgo = new Date(today);
+    threeDaysAgo.setDate(today.getDate() - 2);
+    const threeDaysAgoStr = this.formatDateOnly(threeDaysAgo);
+
+    const recentCompletedUsers = new Set<string>();
+    for (const log of allLogs) {
+      if (log.status === LogStatus.COMPLETED && this.formatDateOnly(new Date(log.date)) >= threeDaysAgoStr) {
+        recentCompletedUsers.add(log.userId);
+      }
+    }
+
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const isInactive = (participant: SessionParticipant): boolean => {
+      const enrolledDays = Math.floor(
+        (today.getTime() - this.normalizeToDateOnly(new Date(participant.joinedAt)).getTime()) / msPerDay,
+      );
+      if (enrolledDays < 3) return false;
+      return !recentCompletedUsers.has(participant.userId);
+    };
+
+    const totalActiveParticipants = participants.filter((p) => !isInactive(p)).length;
+    const retentionRate = Math.round((totalActiveParticipants / participants.length) * 100);
+
+    // ------- OVERALL COMPLETION RATE -------
+    const completedTotal = allLogs.filter((l) => l.status === LogStatus.COMPLETED).length;
+    const completionRate = allLogs.length === 0 ? 0 : Math.round((completedTotal / allLogs.length) * 100);
+
+    // ------- PER-USER LOGS -------
+    const logsByUser = new Map<string, CommitmentLog[]>();
+    for (const log of allLogs) {
+      if (!logsByUser.has(log.userId)) logsByUser.set(log.userId, []);
+      logsByUser.get(log.userId)!.push(log);
+    }
+
+    // ------- STREAK -------
+    const computeStreak = (userLogs: CommitmentLog[]): number => {
+      const completedDates = new Set(
+        userLogs
+          .filter((l) => l.status === LogStatus.COMPLETED)
+          .map((l) => this.formatDateOnly(new Date(l.date))),
+      );
+      if (completedDates.size === 0) return 0;
+      let streak = 0;
+      const cursor = new Date(today);
+      while (completedDates.has(this.formatDateOnly(cursor))) {
+        streak++;
+        cursor.setDate(cursor.getDate() - 1);
+      }
+      return streak;
+    };
+
+    const streaks = participants.map((p) => computeStreak(logsByUser.get(p.userId) || []));
+    const averageStreak =
+      Math.round((streaks.reduce((sum, s) => sum + s, 0) / participants.length) * 10) / 10;
+
+    // ------- COMPLETION BY USER -------
+    const completionByUser = participants.map((p, i) => {
+      const userLogs = logsByUser.get(p.userId) || [];
+      const userCompleted = userLogs.filter((l) => l.status === LogStatus.COMPLETED).length;
+      const userTotal = userLogs.length;
+      const percentage = userTotal === 0 ? 0 : Math.round((userCompleted / userTotal) * 100);
+      return {
+        userId: p.userId,
+        name: p.user?.name || p.user?.telegramUsername || 'Unknown',
+        telegramUsername: p.user?.telegramUsername ?? null,
+        completed: userCompleted,
+        total: userTotal,
+        percentage,
+        streak: streaks[i],
+        isActive: !isInactive(p),
+      };
+    });
+
+    // ------- DAILY ENGAGEMENT TREND -------
+    const sessionStart = this.normalizeToDateOnly(new Date(session.startDate));
+    const completedUsersByDate = new Map<string, Set<string>>();
+    const completedCountByDate = new Map<string, number>();
+    for (const log of allLogs) {
+      if (log.status === LogStatus.COMPLETED) {
+        const dateStr = this.formatDateOnly(new Date(log.date));
+        if (!completedUsersByDate.has(dateStr)) completedUsersByDate.set(dateStr, new Set());
+        completedUsersByDate.get(dateStr)!.add(log.userId);
+        completedCountByDate.set(dateStr, (completedCountByDate.get(dateStr) || 0) + 1);
+      }
+    }
+
+    const engagementTrend: Array<{ date: string; activeUsers: number; completedTasks: number }> = [];
+    const trendCursor = new Date(sessionStart);
+    while (trendCursor <= today) {
+      const dateStr = this.formatDateOnly(trendCursor);
+      engagementTrend.push({
+        date: dateStr,
+        activeUsers: completedUsersByDate.get(dateStr)?.size ?? 0,
+        completedTasks: completedCountByDate.get(dateStr) ?? 0,
+      });
+      trendCursor.setDate(trendCursor.getDate() + 1);
+    }
+
+    return {
+      totalParticipants: participants.length,
+      totalActiveParticipants,
+      retentionRate,
+      completionRate,
+      averageStreak,
+      completionByUser,
+      engagementTrend,
+    };
   }
 
   private async generateTaskStatusSummaryText(input: {
@@ -675,6 +886,14 @@ export class SessionsService {
   }
 
   async getUserTaskStatusOverview(userId: string, targetDateInput?: string) {
+    // Use getUserAllTasks so counts are consistent with what is displayed in the sections.
+    // getAllTasks uses the monthly window + active-today (startDate/endDate) so it always
+    // reflects the true current-period state, including weekly/monthly/custom tasks.
+    const allTasks = await this.getUserAllTasks(userId);
+    const { daily, weekly, monthly, custom = [] } = allTasks;
+    const allTasksList = [...daily, ...weekly, ...monthly, ...custom];
+
+    // For the "today" date label and incomplete-from-yesterday, still use getUserTodayTasks.
     const todayPayload = await this.getUserTodayTasks(userId, targetDateInput);
 
     const targetDate = new Date(todayPayload.date);
@@ -686,14 +905,21 @@ export class SessionsService {
 
     const previousDayPayload = await this.getUserTodayTasks(userId, previousDateIso);
 
-    const completedTasks = todayPayload.tasks.filter((task) => task.status === LogStatus.COMPLETED);
-    const pendingTasks = todayPayload.tasks.filter((task) => task.status === LogStatus.PENDING);
+    // Completed / pending come from allTasksList so they match the displayed sections exactly.
+    const completedTasks = allTasksList.filter((task) => task.status === LogStatus.COMPLETED);
+    const pendingTasks = allTasksList.filter((task) => task.status === LogStatus.PENDING);
+
+    // Incomplete = yesterday's tasks that were not completed.
     const incompleteTasks = previousDayPayload.tasks
       .filter((task) => task.status !== LogStatus.COMPLETED)
       .map((task) => ({
         ...task,
         missedOn: previousDayPayload.date,
       }));
+
+    const completionRate = allTasksList.length === 0
+      ? 0
+      : Math.round((completedTasks.length / allTasksList.length) * 100);
 
     const summaryText = await this.generateTaskStatusSummaryText({
       date: todayPayload.date,
@@ -706,7 +932,7 @@ export class SessionsService {
     return {
       date: todayPayload.date,
       missedDate: previousDayPayload.date,
-      completionRate: todayPayload.completionRate,
+      completionRate,
       summaryText,
       counts: {
         completed: completedTasks.length,

@@ -7,8 +7,8 @@ import {
   JoinColumn,
   Unique,
 } from 'typeorm';
-import { User } from './user.entity.js';
-import { Session } from './session.entity.js';
+import { User } from './user.entity';
+import { Session } from './session.entity';
 
 @Entity('session_participants')
 @Unique(['userId', 'sessionId'])

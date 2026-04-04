@@ -7,8 +7,8 @@ import {
   JoinColumn,
   Unique,
 } from 'typeorm';
-import { Commitment } from './commitment.entity.js';
-import { User } from './user.entity.js';
+import { Commitment } from './commitment.entity';
+import { User } from './user.entity';
 
 export enum LogStatus {
   COMPLETED = 'COMPLETED',
