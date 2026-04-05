@@ -12,6 +12,7 @@ type BotIntent =
   | 'LIST_MY_TASKS'
   | 'MARK_ALL_DONE'
   | 'HELP'
+  | 'WELCOME'
   | 'UNKNOWN';
 
 type OnboardingStep = 'NAME' | 'EMAIL' | 'PHONE';
@@ -137,6 +138,10 @@ export class TelegramService {
           await this.sendHelpMessage(msg.chat.id, msg.from?.first_name);
           return;
         }
+        case 'WELCOME': {
+          await this.sendWelcomeMessage(msg.chat.id, msg.from?.first_name);
+          return;
+        }
         default:
           await this.sendMessage(
             msg.chat.id,
@@ -233,6 +238,7 @@ export class TelegramService {
   }
 
   private async detectIntent(message: string): Promise<BotIntent> {
+    // Primary: fast rule-based classification
     const normalized = message.trim().toLowerCase();
 
     if (normalized === 'done' || /mark\s+all\s+.*done/.test(normalized)) {
@@ -247,7 +253,11 @@ export class TelegramService {
     if (/\b(help|start|what can you do)\b/.test(normalized)) {
       return 'HELP';
     }
+    if (/^(hi|hello|hey|howdy|greetings|good\s+(morning|evening|afternoon|day)|welcome|sup|what'?s\s+up)\b/.test(normalized)) {
+      return 'WELCOME';
+    }
 
+    // Fallback: use OpenAI for anything the rules couldn't classify
     if (!this.openai) {
       return 'UNKNOWN';
     }
@@ -260,7 +270,8 @@ export class TelegramService {
             role: 'system',
             content:
               'You are an intent classifier for a Telegram productivity bot. '
-              + 'Output ONLY one token from this set: LIST_SESSIONS, LIST_MY_TASKS, MARK_ALL_DONE, HELP, UNKNOWN.',
+              + 'Output ONLY one token from this set: LIST_SESSIONS, LIST_MY_TASKS, MARK_ALL_DONE, HELP, WELCOME, UNKNOWN. '
+              + 'Use WELCOME when the message is a greeting or salutation with no specific action requested.',
           },
           {
             role: 'user',
@@ -270,23 +281,44 @@ export class TelegramService {
         temperature: 0,
       });
 
-      const text = (response.output_text || '').trim().toUpperCase();
+      const aiText = (response.output_text || '').trim().toUpperCase();
       const allowed: BotIntent[] = [
         'LIST_SESSIONS',
         'LIST_MY_TASKS',
         'MARK_ALL_DONE',
         'HELP',
+        'WELCOME',
         'UNKNOWN',
       ];
 
-      if (allowed.includes(text as BotIntent)) {
-        return text as BotIntent;
+      if (allowed.includes(aiText as BotIntent)) {
+        return aiText as BotIntent;
       }
       return 'UNKNOWN';
     } catch (error) {
       this.logger.warn(`OpenAI intent classification failed: ${error instanceof Error ? error.message : 'unknown error'}`);
       return 'UNKNOWN';
     }
+  }
+
+  private async sendWelcomeMessage(chatId: number, firstName?: string) {
+    const name = firstName ?? 'Friend';
+    await this.sendMessage(
+      chatId,
+      `👋 Hi ${name}! Welcome to the *Threshing House Pathfinder Bot*, where you can track your daily disciplines and grow your relationship with Jesus. ✝️\n\n`
+      + `To get started, try these commands:\n`
+      + `/sessions — Active sessions overview\n`
+      + `/running — Running sessions\n`
+      + `/mytasks — Your pending tasks\n`
+      + `/tasks — All tasks\n`
+      + `/start — Restart\n\n`
+      + `You can also try saying:\n`
+      + `• "list my sessions"\n`
+      + `• "show my tasks"\n`
+      + `• "mark all done"\n\n`
+      + `If your profile is not set yet, I will onboard you here in Telegram.`,
+      { parse_mode: 'Markdown' },
+    );
   }
 
   private async sendHelpMessage(chatId: number, firstName?: string) {
