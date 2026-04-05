@@ -15,12 +15,12 @@ services:
 
   app:
     build:
-      context: ./backend
+      context: ./
       dockerfile: Dockerfile
     ports:
       - "${PORT:-3001}:3001"
     env_file:
-      - ./backend/.env
+      - .env
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://pathfinder:pathfinder@postgres:5432/pathfinder
