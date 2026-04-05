@@ -836,8 +836,24 @@ export class TelegramService {
     await this.sendMessage(telegramId, message);
   }
 
-  async sendPendingTasksReminder(
+  async sendTomorrowSessionStartReminder(
     telegramId: string,
+    sessionName: string,
+    commitments: Array<{ title: string; description?: string; frequency: string }>,
+  ) {
+    const lines = commitments
+      .map((c) => `• *${c.title}*${c.description ? ` — ${c.description}` : ''} _(${c.frequency.toLowerCase()})_`)
+      .join('\n');
+
+    const message =
+      `🔔 *Heads up!* Your session *${sessionName}* starts *tomorrow*.\n\n`
+      + `Here's what you'll need to do:\n${lines}\n\n`
+      + `Get ready and stay committed! 🙏`;
+
+    await this.sendMessage(telegramId, message, { parse_mode: 'Markdown' });
+  }
+
+  async sendPendingTasksReminder(    telegramId: string,
     pendingTasks: Array<{
       title: string;
       description?: string;

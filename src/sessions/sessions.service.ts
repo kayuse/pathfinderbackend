@@ -629,6 +629,54 @@ export class SessionsService {
       .filter((task) => !!task);
   }
 
+  async getEnrolledUsersForSessionsStartingTomorrow(): Promise<
+    Array<{
+      telegramId: string;
+      sessionName: string;
+      commitments: Array<{ title: string; description?: string; frequency: string }>;
+    }>
+  > {
+    const today = this.normalizeToDateOnly(new Date());
+    const tomorrow = new Date(today);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowStr = this.formatDateOnly(tomorrow);
+
+    const participants = await this.participantRepository
+      .createQueryBuilder('sp')
+      .innerJoinAndSelect('sp.session', 'session')
+      .innerJoinAndSelect('session.commitments', 'commitment')
+      .innerJoinAndSelect('sp.user', 'user')
+      .where('DATE(session.startDate) = :tomorrow', { tomorrow: tomorrowStr })
+      .andWhere('session.isClosed = false')
+      .andWhere('user.telegramId IS NOT NULL')
+      .andWhere(`user.telegramId <> ''`)
+      .getMany();
+
+    // Group by user+session so each pair becomes one reminder
+    const map = new Map<string, {
+      telegramId: string;
+      sessionName: string;
+      commitments: Array<{ title: string; description?: string; frequency: string }>;
+    }>();
+
+    for (const sp of participants) {
+      const key = `${sp.userId}::${sp.sessionId}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          telegramId: sp.user.telegramId!,
+          sessionName: sp.session.name,
+          commitments: sp.session.commitments.map((c) => ({
+            title: c.title,
+            description: c.description,
+            frequency: c.frequency,
+          })),
+        });
+      }
+    }
+
+    return Array.from(map.values());
+  }
+
   async upsertTaskLog(userId: string, commitmentId: string, status: LogStatus) {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
@@ -738,7 +786,7 @@ export class SessionsService {
     // ------- INACTIVITY -------
     // Inactive = enrolled 3+ days AND no COMPLETED log in the last 3 calendar days
     const threeDaysAgo = new Date(today);
-    threeDaysAgo.setUTCDate(today.getUTCDate() - 2);
+    threeDaysAgo.setDate(today.getDate() - 2);
     const threeDaysAgoStr = this.formatDateOnly(threeDaysAgo);
 
     const recentCompletedUsers = new Set<string>();
@@ -783,7 +831,7 @@ export class SessionsService {
       const cursor = new Date(today);
       while (completedDates.has(this.formatDateOnly(cursor))) {
         streak++;
-        cursor.setUTCDate(cursor.getUTCDate() - 1);
+        cursor.setDate(cursor.getDate() - 1);
       }
       return streak;
     };
@@ -832,7 +880,7 @@ export class SessionsService {
         activeUsers: completedUsersByDate.get(dateStr)?.size ?? 0,
         completedTasks: completedCountByDate.get(dateStr) ?? 0,
       });
-      trendCursor.setUTCDate(trendCursor.getUTCDate() + 1);
+      trendCursor.setDate(trendCursor.getDate() + 1);
     }
 
     return {

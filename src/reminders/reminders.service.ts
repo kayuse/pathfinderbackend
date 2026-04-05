@@ -58,8 +58,7 @@ export class RemindersService {
 	}
 
 	@Cron(CronExpression.EVERY_DAY_AT_6PM)
-	async sendEveningNudges() {
-		const users = await this.getLinkedTelegramUsers();
+	async sendEveningNudges() {		const users = await this.getLinkedTelegramUsers();
 
 		await Promise.all(
 			users.map(async (user) => {
@@ -71,6 +70,23 @@ export class RemindersService {
 		);
 
 		this.logger.log(`Evening nudge messages processed for ${users.length} users.`);
+	}
+
+	@Cron('0,30 20-23 * * *') // Every 30 min from 8:00 PM to 11:30 PM (midnight)
+	async sendTomorrowSessionStartReminders() {
+		const enrollments = await this.sessionsService.getEnrolledUsersForSessionsStartingTomorrow();
+
+		let reminded = 0;
+		for (const enrollment of enrollments) {
+			await this.telegramService.sendTomorrowSessionStartReminder(
+				enrollment.telegramId,
+				enrollment.sessionName,
+				enrollment.commitments,
+			);
+			reminded += 1;
+		}
+
+		this.logger.log(`Tomorrow session-start reminders sent to ${reminded} user(s).`);
 	}
 
 	private getLinkedTelegramUsers() {
