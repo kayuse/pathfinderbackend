@@ -83,7 +83,7 @@ export class SessionsService {
 
   private normalizeToDateOnly(value: Date): Date {
     const date = new Date(value);
-    date.setHours(0, 0, 0, 0);
+    date.setUTCHours(0, 0, 0, 0);
     return date;
   }
 
@@ -348,10 +348,10 @@ export class SessionsService {
   async getUserTodayTasks(userId: string, targetDateInput?: string) {
     const targetDate = targetDateInput ? new Date(targetDateInput) : new Date();
     const today = new Date(targetDate);
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
 
     const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
 
     const userSessions = await this.participantRepository.find({
       where: { userId },
@@ -459,17 +459,18 @@ export class SessionsService {
   async getUserAllTasks(userId: string) {
     const now = new Date();
 
-    // --- date range helpers ---
-    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(todayStart); todayEnd.setDate(todayEnd.getDate() + 1);
+    // --- date range helpers (all UTC) ---
+    const todayStart = new Date(now); todayStart.setUTCHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart); todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
 
     const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + (weekStart.getDay() === 0 ? -6 : 1));
-    weekStart.setHours(0, 0, 0, 0);
-    const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
+    const dow = weekStart.getUTCDay();
+    weekStart.setUTCDate(weekStart.getUTCDate() - dow + (dow === 0 ? -6 : 1));
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart); weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
 
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
     // --- load enrolled active sessions ---
     const userSessions = await this.participantRepository.find({
@@ -594,7 +595,7 @@ export class SessionsService {
       .andWhere('log.commitmentId IN (:...commitmentIds)', { commitmentIds })
       .andWhere('log.status = :status', { status: LogStatus.PENDING })
       .andWhere(
-        '(log.date = :today OR (log.startDate <= :today AND log.endDate >= :today))',
+        'log.startDate <= :today',
         { today: this.formatDateOnly(today) },
       )
       .orderBy('log.date', 'ASC')
@@ -630,9 +631,9 @@ export class SessionsService {
 
   async upsertTaskLog(userId: string, commitmentId: string, status: LogStatus) {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     const todayFormatted = this.formatDateOnly(today);
 
     // Find an existing log either dated today OR whose window covers today (weekly/monthly/custom tasks)
@@ -737,7 +738,7 @@ export class SessionsService {
     // ------- INACTIVITY -------
     // Inactive = enrolled 3+ days AND no COMPLETED log in the last 3 calendar days
     const threeDaysAgo = new Date(today);
-    threeDaysAgo.setDate(today.getDate() - 2);
+    threeDaysAgo.setUTCDate(today.getUTCDate() - 2);
     const threeDaysAgoStr = this.formatDateOnly(threeDaysAgo);
 
     const recentCompletedUsers = new Set<string>();
@@ -782,7 +783,7 @@ export class SessionsService {
       const cursor = new Date(today);
       while (completedDates.has(this.formatDateOnly(cursor))) {
         streak++;
-        cursor.setDate(cursor.getDate() - 1);
+        cursor.setUTCDate(cursor.getUTCDate() - 1);
       }
       return streak;
     };
@@ -831,7 +832,7 @@ export class SessionsService {
         activeUsers: completedUsersByDate.get(dateStr)?.size ?? 0,
         completedTasks: completedCountByDate.get(dateStr) ?? 0,
       });
-      trendCursor.setDate(trendCursor.getDate() + 1);
+      trendCursor.setUTCDate(trendCursor.getUTCDate() + 1);
     }
 
     return {
@@ -897,10 +898,10 @@ export class SessionsService {
     const todayPayload = await this.getUserTodayTasks(userId, targetDateInput);
 
     const targetDate = new Date(todayPayload.date);
-    targetDate.setHours(0, 0, 0, 0);
+    targetDate.setUTCHours(0, 0, 0, 0);
 
     const previousDate = new Date(targetDate);
-    previousDate.setDate(previousDate.getDate() - 1);
+    previousDate.setUTCDate(previousDate.getUTCDate() - 1);
     const previousDateIso = previousDate.toISOString().slice(0, 10);
 
     const previousDayPayload = await this.getUserTodayTasks(userId, previousDateIso);

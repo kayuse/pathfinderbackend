@@ -1,0 +1,1 @@
+http://api.telegram.org/bot8093126539:AAFhwqH7-NGe-E-RLXDNlmZVAaj8RmSeA9E/setWebhook?url=https://0502-102-89-23-83.ngrok-free.app/telegram/webhook
